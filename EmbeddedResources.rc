@@ -1,6 +1,0 @@
-// Resource file for embedded DLLs
-// Compile this with: brcc32 EmbeddedResources.rc
-// Or use the Delphi IDE to compile automatically
-
-LLAMA_DLL RCDATA "llama.dll"
-SQLITE3_DLL RCDATA "sqlite3.dll"
