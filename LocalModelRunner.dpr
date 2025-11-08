@@ -38,11 +38,8 @@ begin
 
   // Extract embedded DLLs on startup
   try
-    AppDataPath := IncludeTrailingPathDelimiter(
-      GetEnvironmentVariable('LOCALAPPDATA')) + 'LocalModelRunner\';
-
-    if not DirectoryExists(AppDataPath) then
-      ForceDirectories(AppDataPath);
+    // Use application directory (same folder as EXE)
+    AppDataPath := ExtractFilePath(Application.ExeName);
 
     // Extract llama.dll (ROCm version)
     if TResourceExtractor.ResourceExists('LLAMA_DLL') then
@@ -55,7 +52,7 @@ begin
     // Add to DLL search path
     SetDllDirectory(PChar(AppDataPath));
 
-    // Initialize database
+    // Initialize database in same folder as EXE
     TDatabaseManager.Initialize(AppDataPath + 'localmodel.db');
 
     // Initialize settings
