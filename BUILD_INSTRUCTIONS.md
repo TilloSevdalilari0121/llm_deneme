@@ -1,153 +1,247 @@
 # Local Model Runner - Build Instructions
 
+## AUTOMATED SETUP (RECOMMENDED)
+
+### Just run this:
+
+```cmd
+setup_dependencies.bat
+```
+
+The script will:
+1. Download SQLite3 DLL automatically
+2. Clone and build llama.cpp with your choice of:
+   - ROCm (AMD GPU acceleration)
+   - CPU-only (slower but works everywhere)
+3. Place DLLs in the project directory
+
+**Then open `LocalModelRunner.dpr` in Delphi 12 and build!**
+
+---
+
 ## Prerequisites
 
 ### Required Software
 1. **Delphi 12 Athens** or later
-2. **ROCm** (for AMD GPU support) - Download from: https://rocm.docs.amd.com
-3. **llama.cpp** compiled with ROCm support
-4. **SQLite3** DLL
+2. **CMake** - https://cmake.org/download/
+3. **Git** - https://git-scm.com/download/win
+4. **Visual Studio 2022** with C++ tools
+5. **ROCm** (optional, for AMD GPU) - https://rocm.docs.amd.com
 
-## Step 1: Get Required DLLs
+### Optional for GPU Acceleration
+- **ROCm for Windows** (AMD GPUs: RX 6000/7000, MI series)
+  - Download: https://rocm.docs.amd.com
+  - Only needed if you want GPU acceleration
 
-### A. Build llama.cpp with ROCm Support
+---
 
-```bash
-git clone https://github.com/ggerganov/llama.cpp
-cd llama.cpp
+## MANUAL SETUP (if automated script fails)
 
-# Build with ROCm (AMD GPU)
-cmake -B build -DLLAMA_HIPBLAS=ON
-cmake --build build --config Release
+### Step 1: Get SQLite3 DLL
 
-# The DLL will be in: build/bin/Release/llama.dll
+#### Option A: Run download script
+```cmd
+cd build_tools
+download_sqlite3.bat
 ```
 
-### B. Get SQLite3 DLL
+#### Option B: Manual download
+1. Go to: https://www.sqlite.org/download.html
+2. Download: "Precompiled Binaries for Windows" → **sqlite-dll-win-x64**
+3. Extract `sqlite3.dll` to project root
 
-Download from: https://www.sqlite.org/download.html
-- Get the "Precompiled Binaries for Windows" -> sqlite-dll-win64-x64
-- Extract `sqlite3.dll`
+### Step 2: Build llama.cpp
 
-### C. Place DLLs in Project Directory
+#### Option A: ROCm Build (AMD GPU)
 
-Copy both DLLs to the project root:
+**Requirements:**
+- ROCm installed and configured
+- AMD GPU: RX 6000/7000 series or MI series
+
+```cmd
+cd build_tools
+build_llama_rocm.bat
+```
+
+This will:
+- Clone llama.cpp repository
+- Build with ROCm/HIP support
+- Copy `llama.dll` to project root
+
+#### Option B: CPU-Only Build
+
+**No GPU required:**
+
+```cmd
+cd build_tools
+build_llama_cpu.bat
+```
+
+This will:
+- Clone llama.cpp repository
+- Build CPU-only version (slower)
+- Copy `llama.dll` to project root
+
+**IMPORTANT:** If using CPU-only build, set **GPU Layers = 0** in application settings!
+
+---
+
+## Step 3: Verify DLLs
+
+Check that these files exist in project root:
 ```
 /llm_deneme/
-  ├── llama.dll        (ROCm version from llama.cpp)
-  ├── sqlite3.dll      (from SQLite website)
+  ├── sqlite3.dll   ✓
+  ├── llama.dll     ✓
   └── ...
 ```
 
-## Step 2: Compile Resource File
+---
 
-The resource file embeds the DLLs into the executable.
-
-### Option A: Using Delphi IDE
-1. Open `LocalModelRunner.dpr` in Delphi 12
-2. The IDE will automatically compile `EmbeddedResources.rc` if the DLLs are present
-
-### Option B: Manual Compilation
-```cmd
-cd /llm_deneme
-brcc32 EmbeddedResources.rc
-```
-
-This creates `EmbeddedResources.res` which is referenced in the main program.
-
-## Step 3: Build the Application
+## Step 4: Build Application
 
 ### Using Delphi IDE:
 1. Open `LocalModelRunner.dpr` in Delphi 12
-2. Select **Project → Build LocalModelRunner**
-3. The executable will be created in the output directory (usually `Win64\Release\`)
+2. **Project → Build LocalModelRunner**
+3. Executable created in: `Win64\Release\LocalModelRunner.exe`
 
 ### Using Command Line:
 ```cmd
 dcc64 LocalModelRunner.dpr
 ```
 
-## Step 4: Verify Build
+---
 
-After building successfully:
+## Step 5: Run Application
+
 1. Run `LocalModelRunner.exe`
-2. The first-run wizard should appear
-3. DLLs are automatically extracted to: `%LOCALAPPDATA%\LocalModelRunner\`
+2. First-run wizard will appear
+3. DLLs and database are stored in **same folder as EXE** (portable!)
+
+---
 
 ## Troubleshooting
 
 ### "Cannot find llama.dll"
-- Ensure `llama.dll` is in the project directory before building
-- Verify it was compiled with ROCm support (check file size - should be ~50MB+)
+- Run `setup_dependencies.bat` again
+- OR manually build llama.cpp (see Step 2)
+- Verify `llama.dll` exists in project root
 
 ### "Cannot find sqlite3.dll"
-- Download the correct version (64-bit) from sqlite.org
-- Place it in the project root directory
+- Run `build_tools\download_sqlite3.bat`
+- OR download manually from sqlite.org (64-bit version)
 
-### "Resource compiler error"
-- Run `brcc32 EmbeddedResources.rc` manually
-- Check that both DLLs exist in the project directory
-
-### ROCm GPU Not Working
-- Verify ROCm is installed: Check for `rocm` in your system PATH
-- AMD GPU must be compatible: RX 6000/7000 series or MI series
-- Update AMD drivers to the latest version
+### ROCm Build Fails
+- Verify ROCm is installed: `where hipcc` should return a path
+- Check AMD GPU compatibility: RX 6000/7000 or MI series
+- Try CPU-only build instead: `build_llama_cpu.bat`
 
 ### Application Crashes on Startup
-- Check Windows Event Viewer for detailed error
-- Ensure all DLLs were extracted correctly to `%LOCALAPPDATA%\LocalModelRunner\`
-- Try running as Administrator
+- **Check DLL locations:** Must be in same folder as EXE
+- **Try running as Administrator**
+- Check Windows Event Viewer for detailed errors
 
-## Running the Application
+### GPU Not Detected (ROCm)
+- Verify ROCm drivers installed correctly
+- Update AMD drivers to latest version
+- Check GPU compatibility: https://rocm.docs.amd.com
+- Set **GPU Layers = 0** if GPU not working (use CPU instead)
 
-1. **First Run**: The wizard will guide you through initial setup
-2. **Add Models**: Use Model Manager to add GGUF model files
-3. **Configure GPU**: Set GPU layers in Settings (default: 32 layers)
-4. **Start Chatting**: Load a model and start a conversation!
+---
+
+## Build Scripts Reference
+
+| Script | Purpose |
+|--------|---------|
+| `setup_dependencies.bat` | **Main script** - Interactive setup |
+| `build_tools/download_sqlite3.bat` | Download SQLite3 DLL |
+| `build_tools/build_llama_rocm.bat` | Build llama.cpp with ROCm |
+| `build_tools/build_llama_cpu.bat` | Build llama.cpp CPU-only |
+
+---
 
 ## Model Compatibility
 
-Supported formats:
-- **GGUF** (.gguf files) - Modern llama.cpp format
-- **GGML** (.bin files) - Legacy format (some models)
+### Supported Formats:
+- **GGUF** (.gguf) - Modern llama.cpp format ✓
+- **GGML** (.bin) - Legacy format (some models) ✓
 
-Compatible with models from:
-- Ollama
-- LM Studio
-- Jan
-- HuggingFace (GGUF models)
+### Compatible With:
+- Ollama models
+- LM Studio models
+- Jan models
+- HuggingFace GGUF models
+
+### Where to Find Models:
+- https://huggingface.co (search for "GGUF")
+- Ollama: `~/.ollama/models`
+- LM Studio: `~/.cache/lm-studio/models`
+- Jan: `~/jan/models`
+
+---
 
 ## Performance Tips
 
-1. **GPU Offload**: Higher layers = faster, but needs more VRAM
-   - 7B models: 32 layers
-   - 13B models: 40 layers
-   - 30B+ models: Adjust based on VRAM
+### GPU Offload (ROCm Build)
+- **7B models:** 32 layers
+- **13B models:** 40 layers
+- **30B+ models:** Adjust based on VRAM
+- **CPU-only build:** Set to 0
 
-2. **Context Size**: Larger = more memory but better context
-   - Default: 4096 tokens
-   - Large: 8192 tokens
-   - Extreme: 16384+ tokens
+### Context Size
+- **Default:** 4096 tokens (good balance)
+- **Large:** 8192 tokens (more memory)
+- **Extreme:** 16384+ tokens (needs lots of RAM/VRAM)
 
-3. **Threads**: Set to your CPU core count for best CPU performance
+### CPU Threads
+- Set to your CPU core count
+- Default: 8 threads
 
-## Additional Notes
+---
 
-- The executable is **fully standalone** - all DLLs are embedded
-- No external dependencies at runtime (except ROCm drivers for GPU)
-- Database and settings stored in: `%LOCALAPPDATA%\LocalModelRunner\`
-- Models are NOT copied - they stay in their original locations
+## File Locations (Portable!)
 
-## Support
+All files stored in **same directory as EXE:**
 
-For issues related to:
-- **llama.cpp**: https://github.com/ggerganov/llama.cpp/issues
-- **ROCm**: https://github.com/RadeonOpenCompute/ROCm/issues
-- **SQLite**: https://www.sqlite.org/forum/forumpost/forum
+```
+LocalModelRunner.exe  ← Your executable
+llama.dll             ← Extracted from EXE resources
+sqlite3.dll           ← Extracted from EXE resources
+localmodel.db         ← Database (chat history, settings)
+```
 
-## License
+**Models stay in their original locations** (not copied)
 
+---
+
+## Additional Information
+
+### License
 This application uses:
-- llama.cpp (MIT License)
-- SQLite (Public Domain)
-- ROCm (Various licenses - check AMD documentation)
+- **llama.cpp** - MIT License
+- **SQLite** - Public Domain
+- **ROCm** - Various licenses (check AMD docs)
+
+### Support
+- llama.cpp issues: https://github.com/ggerganov/llama.cpp/issues
+- ROCm issues: https://github.com/RadeonOpenCompute/ROCm/issues
+
+---
+
+## Quick Start Summary
+
+```cmd
+# 1. Run automated setup
+setup_dependencies.bat
+
+# 2. Choose ROCm (GPU) or CPU-only build
+
+# 3. Open in Delphi 12 and build
+# (or use: dcc64 LocalModelRunner.dpr)
+
+# 4. Run LocalModelRunner.exe
+
+# 5. Add models and start chatting!
+```
+
+**That's it! Everything is automated.**
