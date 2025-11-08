@@ -1,9 +1,5 @@
 unit SettingsManager;
 
-{$IFDEF FPC}
-  {$MODE DELPHI}
-{$ENDIF}
-
 interface
 
 uses
@@ -12,112 +8,221 @@ uses
 type
   TSettingsManager = class
   public
-    // First run
-    class function IsFirstRun: Boolean;
-    class procedure SetFirstRunComplete;
+    class procedure Initialize;
 
-    // Theme
+    // API Settings
+    class function GetOllamaURL: string;
+    class procedure SetOllamaURL(const Value: string);
+    class function GetLMStudioURL: string;
+    class procedure SetLMStudioURL(const Value: string);
+    class function GetJanURL: string;
+    class procedure SetJanURL(const Value: string);
+
+    // Current Provider
+    class function GetCurrentProvider: Integer; // 0=Ollama, 1=LM, 2=Jan
+    class procedure SetCurrentProvider(Value: Integer);
+    class function GetCurrentModel: string;
+    class procedure SetCurrentModel(const Value: string);
+
+    // Inference Parameters
+    class function GetTemperature: Double;
+    class procedure SetTemperature(Value: Double);
+    class function GetMaxTokens: Integer;
+    class procedure SetMaxTokens(Value: Integer);
+    class function GetTopP: Double;
+    class procedure SetTopP(Value: Double);
+    class function GetTopK: Integer;
+    class procedure SetTopK(Value: Integer);
+
+    // UI Settings
     class function GetThemeMode: Integer;
     class procedure SetThemeMode(Value: Integer);
-    class function GetColorScheme: Integer;
-    class procedure SetColorScheme(Value: Integer);
+    class function GetThemeID: Integer;
+    class procedure SetThemeID(Value: Integer);
+    class function GetUIMode: Integer; // 0=Professional, 1=Fancy
+    class procedure SetUIMode(Value: Integer);
 
-    // Model paths
-    class function GetOllamaPath: string;
-    class procedure SetOllamaPath(const Value: string);
-    class function GetLMStudioPath: string;
-    class procedure SetLMStudioPath(const Value: string);
-    class function GetJanPath: string;
-    class procedure SetJanPath(const Value: string);
-    class function GetCustomModelPath: string;
-    class procedure SetCustomModelPath(const Value: string);
+    // Current Conversation
+    class function GetCurrentConversationID: Int64;
+    class procedure SetCurrentConversationID(Value: Int64);
 
     // Workspace
     class function GetWorkspacePath: string;
     class procedure SetWorkspacePath(const Value: string);
 
-    // Inference settings
-    class function GetDefaultTemperature: Double;
-    class procedure SetDefaultTemperature(Value: Double);
-    class function GetDefaultTopP: Double;
-    class procedure SetDefaultTopP(Value: Double);
-    class function GetDefaultTopK: Integer;
-    class procedure SetDefaultTopK(Value: Integer);
-    class function GetDefaultMaxTokens: Integer;
-    class procedure SetDefaultMaxTokens(Value: Integer);
-    class function GetDefaultContextSize: Integer;
-    class procedure SetDefaultContextSize(Value: Integer);
+    // Code Execution
+    class function GetPythonPath: string;
+    class procedure SetPythonPath(const Value: string);
+    class function GetCodeExecutionEnabled: Boolean;
+    class procedure SetCodeExecutionEnabled(Value: Boolean);
 
-    // GPU settings
-    class function GetGPULayers: Integer;
-    class procedure SetGPULayers(Value: Integer);
-    class function GetMainGPU: Integer;
-    class procedure SetMainGPU(Value: Integer);
-    class function GetThreads: Integer;
-    class procedure SetThreads(Value: Integer);
+    // RAG Settings
+    class function GetRAGEnabled: Boolean;
+    class procedure SetRAGEnabled(Value: Boolean);
+    class function GetEmbeddingModel: string;
+    class procedure SetEmbeddingModel(const Value: string);
 
-    // Last used model
-    class function GetLastModelPath: string;
-    class procedure SetLastModelPath(const Value: string);
-
-    // Current conversation
-    class function GetCurrentConversationID: Int64;
-    class procedure SetCurrentConversationID(Value: Int64);
-
-    // Initialize with defaults
-    class procedure Initialize;
+    // Performance
+    class function GetTokenCostPerMillion: Double;
+    class procedure SetTokenCostPerMillion(Value: Double);
   end;
 
 implementation
 
 const
-  KEY_FIRST_RUN = 'first_run';
+  // API URLs
+  KEY_OLLAMA_URL = 'ollama_url';
+  KEY_LMSTUDIO_URL = 'lmstudio_url';
+  KEY_JAN_URL = 'jan_url';
+
+  // Current
+  KEY_PROVIDER = 'current_provider';
+  KEY_MODEL = 'current_model';
+
+  // Inference
+  KEY_TEMPERATURE = 'temperature';
+  KEY_MAX_TOKENS = 'max_tokens';
+  KEY_TOP_P = 'top_p';
+  KEY_TOP_K = 'top_k';
+
+  // UI
   KEY_THEME_MODE = 'theme_mode';
-  KEY_COLOR_SCHEME = 'color_scheme';
-  KEY_OLLAMA_PATH = 'ollama_path';
-  KEY_LMSTUDIO_PATH = 'lmstudio_path';
-  KEY_JAN_PATH = 'jan_path';
-  KEY_CUSTOM_MODEL_PATH = 'custom_model_path';
-  KEY_WORKSPACE_PATH = 'workspace_path';
-  KEY_TEMPERATURE = 'default_temperature';
-  KEY_TOP_P = 'default_top_p';
-  KEY_TOP_K = 'default_top_k';
-  KEY_MAX_TOKENS = 'default_max_tokens';
-  KEY_CONTEXT_SIZE = 'default_context_size';
-  KEY_GPU_LAYERS = 'gpu_layers';
-  KEY_MAIN_GPU = 'main_gpu';
-  KEY_THREADS = 'threads';
-  KEY_LAST_MODEL = 'last_model_path';
-  KEY_CURRENT_CONVERSATION = 'current_conversation_id';
+  KEY_THEME_ID = 'theme_id';
+  KEY_UI_MODE = 'ui_mode';
+
+  // Current Conversation
+  KEY_CURRENT_CONV = 'current_conversation_id';
+
+  // Workspace
+  KEY_WORKSPACE = 'workspace_path';
+
+  // Code Execution
+  KEY_PYTHON_PATH = 'python_path';
+  KEY_CODE_EXEC = 'code_execution_enabled';
+
+  // RAG
+  KEY_RAG_ENABLED = 'rag_enabled';
+  KEY_EMBEDDING_MODEL = 'embedding_model';
+
+  // Performance
+  KEY_TOKEN_COST = 'token_cost_per_million';
 
 class procedure TSettingsManager.Initialize;
 begin
   // Set defaults if not exists
-  if TDatabaseManager.GetSetting(KEY_FIRST_RUN, '1') = '1' then
+  if TDatabaseManager.GetSetting(KEY_OLLAMA_URL, '') = '' then
   begin
-    SetThemeMode(1); // Dark mode
-    SetColorScheme(0); // Blue/Gray
-    SetDefaultTemperature(0.7);
-    SetDefaultTopP(0.9);
-    SetDefaultTopK(40);
-    SetDefaultMaxTokens(2048);
-    SetDefaultContextSize(4096);
-    SetGPULayers(32); // Default GPU offload
-    SetMainGPU(0);
-    SetThreads(8);
+    SetOllamaURL('http://localhost:11434');
+    SetLMStudioURL('http://localhost:1234/v1');
+    SetJanURL('http://localhost:1337/v1');
+    SetCurrentProvider(0);
+    SetTemperature(0.7);
+    SetMaxTokens(2048);
+    SetTopP(0.9);
+    SetTopK(40);
+    SetThemeMode(1); // Dark
+    SetThemeID(0); // First theme
+    SetUIMode(0); // Professional
+    SetCodeExecutionEnabled(False);
+    SetRAGEnabled(False);
+    SetTokenCostPerMillion(0.0);
   end;
 end;
 
-class function TSettingsManager.IsFirstRun: Boolean;
+// API Settings
+class function TSettingsManager.GetOllamaURL: string;
 begin
-  Result := TDatabaseManager.GetSetting(KEY_FIRST_RUN, '1') = '1';
+  Result := TDatabaseManager.GetSetting(KEY_OLLAMA_URL, 'http://localhost:11434');
 end;
 
-class procedure TSettingsManager.SetFirstRunComplete;
+class procedure TSettingsManager.SetOllamaURL(const Value: string);
 begin
-  TDatabaseManager.SetSetting(KEY_FIRST_RUN, '0');
+  TDatabaseManager.SetSetting(KEY_OLLAMA_URL, Value);
 end;
 
+class function TSettingsManager.GetLMStudioURL: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_LMSTUDIO_URL, 'http://localhost:1234/v1');
+end;
+
+class procedure TSettingsManager.SetLMStudioURL(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_LMSTUDIO_URL, Value);
+end;
+
+class function TSettingsManager.GetJanURL: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_JAN_URL, 'http://localhost:1337/v1');
+end;
+
+class procedure TSettingsManager.SetJanURL(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_JAN_URL, Value);
+end;
+
+// Current Provider
+class function TSettingsManager.GetCurrentProvider: Integer;
+begin
+  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_PROVIDER, '0'), 0);
+end;
+
+class procedure TSettingsManager.SetCurrentProvider(Value: Integer);
+begin
+  TDatabaseManager.SetSetting(KEY_PROVIDER, IntToStr(Value));
+end;
+
+class function TSettingsManager.GetCurrentModel: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_MODEL, '');
+end;
+
+class procedure TSettingsManager.SetCurrentModel(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_MODEL, Value);
+end;
+
+// Inference Parameters
+class function TSettingsManager.GetTemperature: Double;
+begin
+  Result := StrToFloatDef(TDatabaseManager.GetSetting(KEY_TEMPERATURE, '0.7'), 0.7);
+end;
+
+class procedure TSettingsManager.SetTemperature(Value: Double);
+begin
+  TDatabaseManager.SetSetting(KEY_TEMPERATURE, FloatToStr(Value));
+end;
+
+class function TSettingsManager.GetMaxTokens: Integer;
+begin
+  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_MAX_TOKENS, '2048'), 2048);
+end;
+
+class procedure TSettingsManager.SetMaxTokens(Value: Integer);
+begin
+  TDatabaseManager.SetSetting(KEY_MAX_TOKENS, IntToStr(Value));
+end;
+
+class function TSettingsManager.GetTopP: Double;
+begin
+  Result := StrToFloatDef(TDatabaseManager.GetSetting(KEY_TOP_P, '0.9'), 0.9);
+end;
+
+class procedure TSettingsManager.SetTopP(Value: Double);
+begin
+  TDatabaseManager.SetSetting(KEY_TOP_P, FloatToStr(Value));
+end;
+
+class function TSettingsManager.GetTopK: Integer;
+begin
+  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_TOP_K, '40'), 40);
+end;
+
+class procedure TSettingsManager.SetTopK(Value: Integer);
+begin
+  TDatabaseManager.SetSetting(KEY_TOP_K, IntToStr(Value));
+end;
+
+// UI Settings
 class function TSettingsManager.GetThemeMode: Integer;
 begin
   Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_THEME_MODE, '1'), 1);
@@ -128,170 +233,99 @@ begin
   TDatabaseManager.SetSetting(KEY_THEME_MODE, IntToStr(Value));
 end;
 
-class function TSettingsManager.GetColorScheme: Integer;
+class function TSettingsManager.GetThemeID: Integer;
 begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_COLOR_SCHEME, '0'), 0);
+  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_THEME_ID, '0'), 0);
 end;
 
-class procedure TSettingsManager.SetColorScheme(Value: Integer);
+class procedure TSettingsManager.SetThemeID(Value: Integer);
 begin
-  TDatabaseManager.SetSetting(KEY_COLOR_SCHEME, IntToStr(Value));
+  TDatabaseManager.SetSetting(KEY_THEME_ID, IntToStr(Value));
 end;
 
-class function TSettingsManager.GetOllamaPath: string;
+class function TSettingsManager.GetUIMode: Integer;
 begin
-  Result := TDatabaseManager.GetSetting(KEY_OLLAMA_PATH, '');
+  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_UI_MODE, '0'), 0);
 end;
 
-class procedure TSettingsManager.SetOllamaPath(const Value: string);
+class procedure TSettingsManager.SetUIMode(Value: Integer);
 begin
-  TDatabaseManager.SetSetting(KEY_OLLAMA_PATH, Value);
+  TDatabaseManager.SetSetting(KEY_UI_MODE, IntToStr(Value));
 end;
 
-class function TSettingsManager.GetLMStudioPath: string;
-begin
-  Result := TDatabaseManager.GetSetting(KEY_LMSTUDIO_PATH, '');
-end;
-
-class procedure TSettingsManager.SetLMStudioPath(const Value: string);
-begin
-  TDatabaseManager.SetSetting(KEY_LMSTUDIO_PATH, Value);
-end;
-
-class function TSettingsManager.GetJanPath: string;
-begin
-  Result := TDatabaseManager.GetSetting(KEY_JAN_PATH, '');
-end;
-
-class procedure TSettingsManager.SetJanPath(const Value: string);
-begin
-  TDatabaseManager.SetSetting(KEY_JAN_PATH, Value);
-end;
-
-class function TSettingsManager.GetCustomModelPath: string;
-begin
-  Result := TDatabaseManager.GetSetting(KEY_CUSTOM_MODEL_PATH, '');
-end;
-
-class procedure TSettingsManager.SetCustomModelPath(const Value: string);
-begin
-  TDatabaseManager.SetSetting(KEY_CUSTOM_MODEL_PATH, Value);
-end;
-
-class function TSettingsManager.GetWorkspacePath: string;
-begin
-  Result := TDatabaseManager.GetSetting(KEY_WORKSPACE_PATH, '');
-end;
-
-class procedure TSettingsManager.SetWorkspacePath(const Value: string);
-begin
-  TDatabaseManager.SetSetting(KEY_WORKSPACE_PATH, Value);
-end;
-
-class function TSettingsManager.GetDefaultTemperature: Double;
-var
-  S: string;
-begin
-  S := TDatabaseManager.GetSetting(KEY_TEMPERATURE, '0.7');
-  Result := StrToFloatDef(S, 0.7);
-end;
-
-class procedure TSettingsManager.SetDefaultTemperature(Value: Double);
-begin
-  TDatabaseManager.SetSetting(KEY_TEMPERATURE, FloatToStr(Value));
-end;
-
-class function TSettingsManager.GetDefaultTopP: Double;
-var
-  S: string;
-begin
-  S := TDatabaseManager.GetSetting(KEY_TOP_P, '0.9');
-  Result := StrToFloatDef(S, 0.9);
-end;
-
-class procedure TSettingsManager.SetDefaultTopP(Value: Double);
-begin
-  TDatabaseManager.SetSetting(KEY_TOP_P, FloatToStr(Value));
-end;
-
-class function TSettingsManager.GetDefaultTopK: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_TOP_K, '40'), 40);
-end;
-
-class procedure TSettingsManager.SetDefaultTopK(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_TOP_K, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetDefaultMaxTokens: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_MAX_TOKENS, '2048'), 2048);
-end;
-
-class procedure TSettingsManager.SetDefaultMaxTokens(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_MAX_TOKENS, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetDefaultContextSize: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_CONTEXT_SIZE, '4096'), 4096);
-end;
-
-class procedure TSettingsManager.SetDefaultContextSize(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_CONTEXT_SIZE, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetGPULayers: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_GPU_LAYERS, '32'), 32);
-end;
-
-class procedure TSettingsManager.SetGPULayers(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_GPU_LAYERS, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetMainGPU: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_MAIN_GPU, '0'), 0);
-end;
-
-class procedure TSettingsManager.SetMainGPU(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_MAIN_GPU, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetThreads: Integer;
-begin
-  Result := StrToIntDef(TDatabaseManager.GetSetting(KEY_THREADS, '8'), 8);
-end;
-
-class procedure TSettingsManager.SetThreads(Value: Integer);
-begin
-  TDatabaseManager.SetSetting(KEY_THREADS, IntToStr(Value));
-end;
-
-class function TSettingsManager.GetLastModelPath: string;
-begin
-  Result := TDatabaseManager.GetSetting(KEY_LAST_MODEL, '');
-end;
-
-class procedure TSettingsManager.SetLastModelPath(const Value: string);
-begin
-  TDatabaseManager.SetSetting(KEY_LAST_MODEL, Value);
-end;
-
+// Current Conversation
 class function TSettingsManager.GetCurrentConversationID: Int64;
 begin
-  Result := StrToInt64Def(TDatabaseManager.GetSetting(KEY_CURRENT_CONVERSATION, '-1'), -1);
+  Result := StrToInt64Def(TDatabaseManager.GetSetting(KEY_CURRENT_CONV, '-1'), -1);
 end;
 
 class procedure TSettingsManager.SetCurrentConversationID(Value: Int64);
 begin
-  TDatabaseManager.SetSetting(KEY_CURRENT_CONVERSATION, IntToStr(Value));
+  TDatabaseManager.SetSetting(KEY_CURRENT_CONV, IntToStr(Value));
+end;
+
+// Workspace
+class function TSettingsManager.GetWorkspacePath: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_WORKSPACE, '');
+end;
+
+class procedure TSettingsManager.SetWorkspacePath(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_WORKSPACE, Value);
+end;
+
+// Code Execution
+class function TSettingsManager.GetPythonPath: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_PYTHON_PATH, 'python');
+end;
+
+class procedure TSettingsManager.SetPythonPath(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_PYTHON_PATH, Value);
+end;
+
+class function TSettingsManager.GetCodeExecutionEnabled: Boolean;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_CODE_EXEC, '0') = '1';
+end;
+
+class procedure TSettingsManager.SetCodeExecutionEnabled(Value: Boolean);
+begin
+  TDatabaseManager.SetSetting(KEY_CODE_EXEC, IfThen(Value, '1', '0'));
+end;
+
+// RAG
+class function TSettingsManager.GetRAGEnabled: Boolean;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_RAG_ENABLED, '0') = '1';
+end;
+
+class procedure TSettingsManager.SetRAGEnabled(Value: Boolean);
+begin
+  TDatabaseManager.SetSetting(KEY_RAG_ENABLED, IfThen(Value, '1', '0'));
+end;
+
+class function TSettingsManager.GetEmbeddingModel: string;
+begin
+  Result := TDatabaseManager.GetSetting(KEY_EMBEDDING_MODEL, 'nomic-embed-text');
+end;
+
+class procedure TSettingsManager.SetEmbeddingModel(const Value: string);
+begin
+  TDatabaseManager.SetSetting(KEY_EMBEDDING_MODEL, Value);
+end;
+
+// Performance
+class function TSettingsManager.GetTokenCostPerMillion: Double;
+begin
+  Result := StrToFloatDef(TDatabaseManager.GetSetting(KEY_TOKEN_COST, '0.0'), 0.0);
+end;
+
+class procedure TSettingsManager.SetTokenCostPerMillion(Value: Double);
+begin
+  TDatabaseManager.SetSetting(KEY_TOKEN_COST, FloatToStr(Value));
 end;
 
 end.

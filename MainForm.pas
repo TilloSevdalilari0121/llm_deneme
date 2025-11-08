@@ -1,74 +1,53 @@
 unit MainForm;
 
-{$IFDEF FPC}
-  {$MODE DELPHI}
-{$ENDIF}
-
 interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.ComCtrls, Vcl.Buttons,
-  ThemeManager, InferenceEngine, ModelManager, DatabaseManager,
-  SettingsManager, CodeAssistant;
+  ThemeManager, SettingsManager, DatabaseManager, OllamaAPI, LMStudioAPI, JanAPI,
+  APIBase;
 
 type
   TfrmMain = class(TForm)
+    pnlSidebar: TPanel;
+    pnlMain: TPanel;
     pnlTop: TPanel;
-    pnlChat: TPanel;
-    pnlInput: TPanel;
-    memoChat: TRichEdit;
-    memoInput: TMemo;
-    btnSend: TButton;
-    btnStop: TButton;
-    cmbModels: TComboBox;
-    btnLoadModel: TButton;
+    lstModules: TListBox;
+    splSidebar: TSplitter;
+    lblTitle: TLabel;
     btnSettings: TButton;
     btnTheme: TButton;
-    btnModels: TButton;
-    btnWorkspace: TButton;
+    cmbProvider: TComboBox;
+    cmbModel: TComboBox;
+    lblProvider: TLabel;
     lblModel: TLabel;
+    pnlStatus: TPanel;
     lblStatus: TLabel;
-    pnlSidebar: TPanel;
-    lstConversations: TListBox;
-    btnNewChat: TButton;
-    btnDeleteChat: TButton;
-    splConversations: TSplitter;
-    pnlToolbar: TPanel;
-    btnClearChat: TButton;
-    chkCodeMode: TCheckBox;
+    btnRefreshModels: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
-    procedure btnSendClick(Sender: TObject);
-    procedure btnStopClick(Sender: TObject);
-    procedure btnLoadModelClick(Sender: TObject);
+    procedure lstModulesClick(Sender: TObject);
     procedure btnSettingsClick(Sender: TObject);
     procedure btnThemeClick(Sender: TObject);
-    procedure btnModelsClick(Sender: TObject);
-    procedure btnWorkspaceClick(Sender: TObject);
-    procedure btnNewChatClick(Sender: TObject);
-    procedure btnDeleteChatClick(Sender: TObject);
-    procedure btnClearChatClick(Sender: TObject);
-    procedure lstConversationsClick(Sender: TObject);
-    procedure memoInputKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure cmbProviderChange(Sender: TObject);
+    procedure btnRefreshModelsClick(Sender: TObject);
   private
-    FEngine: TInferenceEngine;
-    FCodeAssistant: TCodeAssistant;
-    FCurrentConversationID: Int64;
+    FCurrentAPI: TAPIBase;
+    FOllamaAPI: TOllamaAPI;
+    FLMStudioAPI: TLMStudioAPI;
+    FJanAPI: TJanAPI;
+    FActiveForm: TForm;
 
+    procedure InitializeAPIs;
+    procedure LoadProviders;
     procedure LoadModels;
-    procedure LoadConversations;
-    procedure LoadConversationMessages(ConvID: Int64);
-    procedure AddMessageToChat(const Role, Content: string);
-    procedure OnTokenReceived(const Token: string);
-    procedure OnGenerationComplete(const FullText: string; TokenCount: Integer);
-    procedure OnGenerationError(const ErrorMsg: string);
-    procedure UpdateStatus(const Status: string);
+    procedure SwitchModule(const ModuleName: string);
+    procedure ShowModuleForm(FormClass: TFormClass);
     procedure ApplyTheme;
-    procedure ProcessCodeCommand(const Command: string);
   public
-    { Public declarations }
+    property CurrentAPI: TAPIBase read FCurrentAPI;
   end;
 
 var
@@ -77,283 +56,201 @@ var
 implementation
 
 uses
-  SettingsForm, ModelManagerForm, ThemeSettingsForm, WorkspaceForm;
+  ChatForm, ModelCompareForm, ModelManagerForm, BenchmarkForm,
+  RAGManagerForm, PromptLibraryForm, APIPlaygroundForm,
+  CodeExecutionForm, WorkspaceForm, PerformanceMonitorForm,
+  SettingsForm, ThemeManagerForm, PluginManagerForm, ExportImportForm;
 
 {$R *.dfm}
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
-  FEngine := TInferenceEngine.Create;
-  FCodeAssistant := TCodeAssistant.Create;
-  FCurrentConversationID := -1;
+  // Initialize APIs
+  InitializeAPIs;
 
-  LoadModels;
-  LoadConversations;
+  // Setup modules list
+  lstModules.Items.Clear;
+  lstModules.Items.Add('Chat');
+  lstModules.Items.Add('Model Compare');
+  lstModules.Items.Add('Model Manager');
+  lstModules.Items.Add('Benchmark');
+  lstModules.Items.Add('RAG Manager');
+  lstModules.Items.Add('Prompt Library');
+  lstModules.Items.Add('API Playground');
+  lstModules.Items.Add('Code Execution');
+  lstModules.Items.Add('Workspace');
+  lstModules.Items.Add('Performance Monitor');
+  lstModules.Items.Add('Plugin Manager');
+  lstModules.Items.Add('Export/Import');
+
+  // Load providers
+  LoadProviders;
+
+  // Select default module
+  lstModules.ItemIndex := 0;
+  SwitchModule('Chat');
+
+  // Apply theme
   ApplyTheme;
 
-  btnStop.Enabled := False;
-  UpdateStatus('Ready');
-
-  // Load last conversation
-  FCurrentConversationID := TSettingsManager.GetCurrentConversationID;
-  if FCurrentConversationID > 0 then
-    LoadConversationMessages(FCurrentConversationID)
-  else
-    btnNewChatClick(nil); // Create first conversation
+  lblStatus.Caption := 'Ready';
 end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
-  FEngine.Free;
-  FCodeAssistant.Free;
+  if Assigned(FActiveForm) then
+    FActiveForm.Free;
+
+  FOllamaAPI.Free;
+  FLMStudioAPI.Free;
+  FJanAPI.Free;
 end;
 
-procedure TfrmMain.ApplyTheme;
+procedure TfrmMain.InitializeAPIs;
 begin
-  TThemeManager.ApplyToForm(Self);
+  FOllamaAPI := TOllamaAPI.Create;
+  FOllamaAPI.BaseURL := TSettingsManager.GetOllamaURL;
+
+  FLMStudioAPI := TLMStudioAPI.Create;
+  FLMStudioAPI.BaseURL := TSettingsManager.GetLMStudioURL;
+
+  FJanAPI := TJanAPI.Create;
+  FJanAPI.BaseURL := TSettingsManager.GetJanURL;
+
+  // Set current API based on settings
+  case TSettingsManager.GetCurrentProvider of
+    0: FCurrentAPI := FOllamaAPI;
+    1: FCurrentAPI := FLMStudioAPI;
+    2: FCurrentAPI := FJanAPI;
+  else
+    FCurrentAPI := FOllamaAPI;
+  end;
+end;
+
+procedure TfrmMain.LoadProviders;
+begin
+  cmbProvider.Items.Clear;
+  cmbProvider.Items.Add('Ollama');
+  cmbProvider.Items.Add('LM Studio');
+  cmbProvider.Items.Add('Jan');
+
+  cmbProvider.ItemIndex := TSettingsManager.GetCurrentProvider;
+  cmbProviderChange(nil);
 end;
 
 procedure TfrmMain.LoadModels;
 var
   Models: TArray<TModelInfo>;
-  Model: TModelInfo;
-begin
-  cmbModels.Clear;
-  Models := TModelManager.GetAllModels;
-
-  for Model in Models do
-    cmbModels.Items.AddObject(Format('%s (%s)', [Model.Name, Model.SizeFormatted]), TObject(Model.ID));
-
-  if cmbModels.Items.Count > 0 then
-  begin
-    // Try to load last used model
-    var LastModel := TSettingsManager.GetLastModelPath;
-    if LastModel <> '' then
-    begin
-      var I: Integer;
-      for I := 0 to Models.High do
-      begin
-        if Models[I].Path = LastModel then
-        begin
-          cmbModels.ItemIndex := I;
-          Break;
-        end;
-      end;
-    end;
-
-    if cmbModels.ItemIndex < 0 then
-      cmbModels.ItemIndex := 0;
-  end;
-end;
-
-procedure TfrmMain.LoadConversations;
-var
-  Convs: TStringList;
   I: Integer;
-  Parts: TArray<string>;
 begin
-  lstConversations.Clear;
-  Convs := TDatabaseManager.GetAllConversations;
+  cmbModel.Items.Clear;
+
   try
-    for I := 0 to Convs.Count - 1 do
+    Models := FCurrentAPI.GetModels;
+    for I := 0 to High(Models) do
+      cmbModel.Items.Add(Models[I].Name);
+
+    if cmbModel.Items.Count > 0 then
     begin
-      Parts := Convs[I].Split(['|']);
-      if Length(Parts) >= 2 then
-        lstConversations.Items.AddObject(Parts[1], TObject(StrToInt64(Parts[0])));
+      // Try to select saved model
+      var SavedModel := TSettingsManager.GetCurrentModel;
+      var Idx := cmbModel.Items.IndexOf(SavedModel);
+      if Idx >= 0 then
+        cmbModel.ItemIndex := Idx
+      else
+        cmbModel.ItemIndex := 0;
+
+      FCurrentAPI.Model := cmbModel.Text;
     end;
-  finally
-    Convs.Free;
+
+    lblStatus.Caption := Format('Loaded %d models', [cmbModel.Items.Count]);
+  except
+    on E: Exception do
+      lblStatus.Caption := 'Error loading models: ' + E.Message;
   end;
 end;
 
-procedure TfrmMain.LoadConversationMessages(ConvID: Int64);
-var
-  Messages: TStringList;
-  I: Integer;
-  Parts: TArray<string>;
+procedure TfrmMain.cmbProviderChange(Sender: TObject);
 begin
-  memoChat.Clear;
-  Messages := TDatabaseManager.GetConversationMessages(ConvID);
-  try
-    for I := 0 to Messages.Count - 1 do
-    begin
-      Parts := Messages[I].Split(['|'], 2);
-      if Length(Parts) = 2 then
-        AddMessageToChat(Parts[0], Parts[1]);
-    end;
-  finally
-    Messages.Free;
+  case cmbProvider.ItemIndex of
+    0: FCurrentAPI := FOllamaAPI;
+    1: FCurrentAPI := FLMStudioAPI;
+    2: FCurrentAPI := FJanAPI;
   end;
 
-  FCurrentConversationID := ConvID;
-  TSettingsManager.SetCurrentConversationID(ConvID);
+  TSettingsManager.SetCurrentProvider(cmbProvider.ItemIndex);
+  LoadModels;
 end;
 
-procedure TfrmMain.AddMessageToChat(const Role, Content: string);
-var
-  Theme: TTheme;
-  RoleText: string;
+procedure TfrmMain.btnRefreshModelsClick(Sender: TObject);
 begin
-  Theme := TThemeManager.GetCurrentTheme;
+  LoadModels;
+end;
 
-  if Role = 'user' then
+procedure TfrmMain.lstModulesClick(Sender: TObject);
+begin
+  if lstModules.ItemIndex >= 0 then
+    SwitchModule(lstModules.Items[lstModules.ItemIndex]);
+end;
+
+procedure TfrmMain.SwitchModule(const ModuleName: string);
+begin
+  if SameText(ModuleName, 'Chat') then
+    ShowModuleForm(TfrmChat)
+  else if SameText(ModuleName, 'Model Compare') then
+    ShowModuleForm(TfrmModelCompare)
+  else if SameText(ModuleName, 'Model Manager') then
+    ShowModuleForm(TfrmModelManager)
+  else if SameText(ModuleName, 'Benchmark') then
+    ShowModuleForm(TfrmBenchmark)
+  else if SameText(ModuleName, 'RAG Manager') then
+    ShowModuleForm(TfrmRAGManager)
+  else if SameText(ModuleName, 'Prompt Library') then
+    ShowModuleForm(TfrmPromptLibrary)
+  else if SameText(ModuleName, 'API Playground') then
+    ShowModuleForm(TfrmAPIPlayground)
+  else if SameText(ModuleName, 'Code Execution') then
+    ShowModuleForm(TfrmCodeExecution)
+  else if SameText(ModuleName, 'Workspace') then
+    ShowModuleForm(TfrmWorkspace)
+  else if SameText(ModuleName, 'Performance Monitor') then
+    ShowModuleForm(TfrmPerformanceMonitor)
+  else if SameText(ModuleName, 'Plugin Manager') then
+    ShowModuleForm(TfrmPluginManager)
+  else if SameText(ModuleName, 'Export/Import') then
+    ShowModuleForm(TfrmExportImport);
+end;
+
+procedure TfrmMain.ShowModuleForm(FormClass: TFormClass);
+begin
+  // Free previous form
+  if Assigned(FActiveForm) then
   begin
-    RoleText := 'You: ';
-    memoChat.SelAttributes.Color := Theme.AccentSecondary;
-  end
-  else
-  begin
-    RoleText := 'Assistant: ';
-    memoChat.SelAttributes.Color := Theme.AccentPrimary;
+    FActiveForm.Free;
+    FActiveForm := nil;
   end;
 
-  memoChat.SelAttributes.Style := [fsBold];
-  memoChat.SelText := RoleText + #13#10;
+  // Create new form
+  FActiveForm := FormClass.Create(Self);
+  FActiveForm.BorderStyle := bsNone;
+  FActiveForm.Parent := pnlMain;
+  FActiveForm.Align := alClient;
+  FActiveForm.Show;
 
-  memoChat.SelAttributes.Color := Theme.TextPrimary;
-  memoChat.SelAttributes.Style := [];
-  memoChat.SelText := Content + #13#10#13#10;
-
-  // Scroll to bottom
-  memoChat.Perform(EM_SCROLLCARET, 0, 0);
-end;
-
-procedure TfrmMain.btnSendClick(Sender: TObject);
-var
-  UserMessage: string;
-begin
-  UserMessage := Trim(memoInput.Text);
-  if UserMessage = '' then Exit;
-
-  if not FEngine.IsModelLoaded then
-  begin
-    ShowMessage('Please load a model first!');
-    Exit;
-  end;
-
-  // Check if it's a code command
-  if chkCodeMode.Checked and UserMessage.StartsWithText('/code') then
-  begin
-    ProcessCodeCommand(UserMessage);
-    Exit;
-  end;
-
-  // Save user message
-  if FCurrentConversationID > 0 then
-    TDatabaseManager.SaveMessage(FCurrentConversationID, 'user', UserMessage);
-
-  // Display user message
-  AddMessageToChat('user', UserMessage);
-  memoInput.Clear;
-
-  // Start generation
-  btnSend.Enabled := False;
-  btnStop.Enabled := True;
-  UpdateStatus('Generating...');
-
-  // Add assistant prefix
-  memoChat.SelAttributes.Color := TThemeManager.GetCurrentTheme.AccentPrimary;
-  memoChat.SelAttributes.Style := [fsBold];
-  memoChat.SelText := 'Assistant: ' + #13#10;
-  memoChat.SelAttributes.Style := [];
-  memoChat.SelAttributes.Color := TThemeManager.GetCurrentTheme.TextPrimary;
-
-  // Generate response
-  TThread.CreateAnonymousThread(
-    procedure
-    begin
-      FEngine.Generate(UserMessage, OnTokenReceived, OnGenerationComplete, OnGenerationError);
-    end
-  ).Start;
-end;
-
-procedure TfrmMain.btnStopClick(Sender: TObject);
-begin
-  FEngine.CancelGeneration;
-  UpdateStatus('Stopped');
-  btnSend.Enabled := True;
-  btnStop.Enabled := False;
-end;
-
-procedure TfrmMain.OnTokenReceived(const Token: string);
-begin
-  TThread.Synchronize(nil,
-    procedure
-    begin
-      memoChat.SelText := Token;
-      memoChat.Perform(EM_SCROLLCARET, 0, 0);
-    end
-  );
-end;
-
-procedure TfrmMain.OnGenerationComplete(const FullText: string; TokenCount: Integer);
-begin
-  TThread.Synchronize(nil,
-    procedure
-    begin
-      // Save assistant message
-      if FCurrentConversationID > 0 then
-        TDatabaseManager.SaveMessage(FCurrentConversationID, 'assistant', FullText);
-
-      memoChat.SelText := #13#10#13#10;
-      UpdateStatus(Format('Complete (%d tokens)', [TokenCount]));
-      btnSend.Enabled := True;
-      btnStop.Enabled := False;
-    end
-  );
-end;
-
-procedure TfrmMain.OnGenerationError(const ErrorMsg: string);
-begin
-  TThread.Synchronize(nil,
-    procedure
-    begin
-      ShowMessage('Error: ' + ErrorMsg);
-      UpdateStatus('Error');
-      btnSend.Enabled := True;
-      btnStop.Enabled := False;
-    end
-  );
-end;
-
-procedure TfrmMain.btnLoadModelClick(Sender: TObject);
-var
-  Models: TArray<TModelInfo>;
-  ModelPath: string;
-begin
-  if cmbModels.ItemIndex < 0 then
-  begin
-    ShowMessage('Please select a model!');
-    Exit;
-  end;
-
-  Models := TModelManager.GetAllModels;
-  if cmbModels.ItemIndex > Models.High then Exit;
-
-  ModelPath := Models[cmbModels.ItemIndex].Path;
-  UpdateStatus('Loading model...');
-
-  if FEngine.LoadModel(ModelPath) then
-  begin
-    UpdateStatus('Model loaded: ' + Models[cmbModels.ItemIndex].Name);
-    TSettingsManager.SetLastModelPath(ModelPath);
-    lblModel.Caption := 'Model: ' + Models[cmbModels.ItemIndex].Name;
-  end
-  else
-  begin
-    UpdateStatus('Failed to load model');
-    ShowMessage('Failed to load model!');
-  end;
+  TThemeManager.ApplyToForm(FActiveForm);
 end;
 
 procedure TfrmMain.btnSettingsClick(Sender: TObject);
+var
+  frm: TfrmSettings;
 begin
-  var frm := TfrmSettings.Create(Self);
+  frm := TfrmSettings.Create(Self);
   try
     if frm.ShowModal = mrOK then
     begin
-      // Reload engine params
-      FEngine.LoadDefaultParams;
+      // Reload settings
+      InitializeAPIs;
+      LoadProviders;
     end;
   finally
     frm.Free;
@@ -361,8 +258,10 @@ begin
 end;
 
 procedure TfrmMain.btnThemeClick(Sender: TObject);
+var
+  frm: TfrmThemeManager;
 begin
-  var frm := TfrmThemeSettings.Create(Self);
+  frm := TfrmThemeManager.Create(Self);
   try
     if frm.ShowModal = mrOK then
       ApplyTheme;
@@ -371,130 +270,11 @@ begin
   end;
 end;
 
-procedure TfrmMain.btnModelsClick(Sender: TObject);
+procedure TfrmMain.ApplyTheme;
 begin
-  var frm := TfrmModelManager.Create(Self);
-  try
-    if frm.ShowModal = mrOK then
-      LoadModels;
-  finally
-    frm.Free;
-  end;
-end;
-
-procedure TfrmMain.btnWorkspaceClick(Sender: TObject);
-begin
-  var frm := TfrmWorkspace.Create(Self);
-  try
-    frm.ShowModal;
-  finally
-    frm.Free;
-  end;
-end;
-
-procedure TfrmMain.btnNewChatClick(Sender: TObject);
-var
-  Title: string;
-  ConvID: Int64;
-begin
-  Title := 'New Conversation ' + FormatDateTime('yyyy-mm-dd hh:nn', Now);
-  ConvID := TDatabaseManager.CreateConversation(Title);
-  LoadConversations;
-  LoadConversationMessages(ConvID);
-end;
-
-procedure TfrmMain.btnDeleteChatClick(Sender: TObject);
-var
-  ConvID: Int64;
-begin
-  if lstConversations.ItemIndex < 0 then Exit;
-
-  if MessageDlg('Delete this conversation?', mtConfirmation, [mbYes, mbNo], 0) = mrYes then
-  begin
-    ConvID := Int64(lstConversations.Items.Objects[lstConversations.ItemIndex]);
-    TDatabaseManager.DeleteConversation(ConvID);
-    LoadConversations;
-
-    if ConvID = FCurrentConversationID then
-      btnNewChatClick(nil);
-  end;
-end;
-
-procedure TfrmMain.btnClearChatClick(Sender: TObject);
-begin
-  if MessageDlg('Clear current chat window?', mtConfirmation, [mbYes, mbNo], 0) = mrYes then
-    memoChat.Clear;
-end;
-
-procedure TfrmMain.lstConversationsClick(Sender: TObject);
-var
-  ConvID: Int64;
-begin
-  if lstConversations.ItemIndex < 0 then Exit;
-  ConvID := Int64(lstConversations.Items.Objects[lstConversations.ItemIndex]);
-  LoadConversationMessages(ConvID);
-end;
-
-procedure TfrmMain.memoInputKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-begin
-  if (Key = VK_RETURN) and (ssCtrl in Shift) then
-  begin
-    btnSendClick(nil);
-    Key := 0;
-  end;
-end;
-
-procedure TfrmMain.ProcessCodeCommand(const Command: string);
-var
-  Parts: TArray<string>;
-  Action, FilePath, Content: string;
-begin
-  Parts := Command.Split([' '], 3);
-  if Length(Parts) < 3 then
-  begin
-    AddMessageToChat('system', 'Usage: /code [read|write|list] <file> [content]');
-    Exit;
-  end;
-
-  Action := LowerCase(Parts[1]);
-  FilePath := Parts[2];
-
-  try
-    if Action = 'read' then
-    begin
-      Content := FCodeAssistant.ReadFile(FilePath);
-      AddMessageToChat('system', 'File: ' + FilePath + #13#10 + Content);
-    end
-    else if Action = 'write' then
-    begin
-      if Length(Parts) < 4 then
-      begin
-        AddMessageToChat('system', 'Usage: /code write <file> <content>');
-        Exit;
-      end;
-      Content := Parts[3];
-      FCodeAssistant.WriteFile(FilePath, Content);
-      AddMessageToChat('system', 'File written: ' + FilePath);
-    end
-    else if Action = 'list' then
-    begin
-      var Files := FCodeAssistant.ListFiles(FilePath);
-      var FileList := '';
-      for var F in Files do
-        FileList := FileList + F.Name + #13#10;
-      AddMessageToChat('system', 'Files in ' + FilePath + ':' + #13#10 + FileList);
-    end
-    else
-      AddMessageToChat('system', 'Unknown command: ' + Action);
-  except
-    on E: Exception do
-      AddMessageToChat('system', 'Error: ' + E.Message);
-  end;
-end;
-
-procedure TfrmMain.UpdateStatus(const Status: string);
-begin
-  lblStatus.Caption := 'Status: ' + Status;
+  TThemeManager.ApplyToForm(Self);
+  if Assigned(FActiveForm) then
+    TThemeManager.ApplyToForm(FActiveForm);
 end;
 
 end.
